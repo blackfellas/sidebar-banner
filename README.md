@@ -1,1 +1,1 @@
-# sidebar-banner
+### sidebar banner updater for /r/blackfellas
