@@ -85,7 +85,7 @@ class ScheduledEvent(object):
                  'url': None,
                  'title': None}
     repeat_regex = re.compile(r'^(\d+)\s+(minute|hour|day|week|month|year)s?$')
-    url_regex = re.compile(r'^https?:\/\/imgur\.com\/(a|gallery)\/\w+\/?$')
+    url_regex = re.compile(r'^(https?:\/\/)?(www\.)?imgur\.com\/(a|gallery)\/\w+\/?$')
     freq_dict = {'minute': rrule.MINUTELY,
                  'hour': rrule.HOURLY,
                  'day': rrule.DAILY,
@@ -198,8 +198,8 @@ class ScheduledEvent(object):
             local_name = localize_name(album_id, url)
             download_image(url, local_name)
            
-            title = image['title'].encode('ascii', 'ignore').decode('ascii') if image['title'] else 'Untitled'
-            description = image['description'].encode('ascii', 'ignore').decode('ascii') if image['description'] else ' '
+            title = image['title'].encode('utf-8') if image['title'] else 'Untitled'
+            description = image['description'].encode('utf-8') if image['description'] else ' '
             line = sidebar_format.format(title=title, link='#s', desc=description)
            
             
@@ -221,14 +221,14 @@ class ScheduledEvent(object):
                                'Images ideally should be greater than 300px wide and 1:1 or greater aspect ratio: \n\n{2}'.format(album_title, self.url, '\n'.join(bigpic)))
             return
         bar = '\n'.join(sidebar_lines)
-        bar = '##### ' + album_title + '\n' + bar + '\n\n'
+        bar = '{0} {1}\n{2}\n\n'.format('##### ',album_title, bar)
         
         r.config.decode_html_entities = True
         current_sidebar = subreddit.get_settings()['description']
         current_sidebar = HTMLParser.HTMLParser().unescape(current_sidebar)
         replace_pattern = re.compile('%s.*?%s' % (re.escape(cfg_file.get('reddit', 'start_delimiter')), re.escape(cfg_file.get('reddit', 'end_delimiter'))), re.IGNORECASE|re.DOTALL|re.UNICODE)
         new_sidebar = re.sub(replace_pattern,
-                            '%s\\n\\n%s\\n%s' % (cfg_file.get('reddit', 'start_delimiter'), bar, cfg_file.get('reddit', 'end_delimiter')),
+                            '%s\\n\\n%s\\n%s' % (cfg_file.get('reddit', 'start_delimiter'), bar.decode('utf-8'), cfg_file.get('reddit', 'end_delimiter')),
                             current_sidebar)
         
         r.update_settings(subreddit, description=new_sidebar)
