@@ -1,6 +1,4 @@
 praw
-
 python-dateutil
 pyyaml
-
 pyimgur
