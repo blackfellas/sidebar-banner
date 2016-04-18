@@ -1,4 +1,7 @@
 praw
+
 python-dateutil
 pyyaml
-pyimgur
+
+SQLAlchemy
+imgurpython
