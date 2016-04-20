@@ -8,19 +8,20 @@
 # banner text here
 # [](#banner_end)
 #
-#
-#
 
+import praw
 from ConfigParser import SafeConfigParser
-from datetime import datetime, timedelta
 import HTMLParser
 import logging, logging.config, re, sys, os
-import time
-#from time import time
 
+import time
+from datetime import datetime, timedelta
 from dateutil import parser, rrule, tz
-import praw
+import yaml
+
 from requests.exceptions import HTTPError
+import requests
+
 from sqlalchemy import create_engine
 from sqlalchemy import Boolean, Column, DateTime, String, Text, Integer
 from sqlalchemy.ext.declarative import declarative_base
@@ -28,13 +29,12 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm.exc import NoResultFound
 from sqlalchemy.sql.expression import func
 
-import yaml
 
-import random
-import requests
 from imgurpython import ImgurClient
+import random
 
 # global reddit session
+from login import login
 r = None
 cfg_file = SafeConfigParser()
 path_to_cfg = os.path.abspath(os.path.dirname(sys.argv[0]))
@@ -140,13 +140,13 @@ class ScheduledEvent(object):
     def is_due(self, start_time, end_time):
         	
         if self.rrule and self.rrule.before(start_time, inc=True):
-            print "Due now? %s: %s"	%(bool(self.rrule.between(start_time, end_time, inc=True)), self.title)
-            print 'next recurrence', self.rrule.after(start_time, inc=True)
+            print '{title}: {due}'.format(title=self.title, due = "due!" if bool(self.rrule.between(start_time, end_time, inc=True) else "not due"))
+            print 'Next recurrence: {0}\n'.format(self.rrule.after(start_time, inc=True))
 
             return bool(self.rrule.between(start_time, end_time, inc=True)), start_time - self.rrule.before(start_time, inc=True), self.title
             			
         else:
-            print "%s: %s - %s"	%("Not started or ended", self.title, self.first)
+            print '{0}: pending (since/till {1})'.format(self.title, self.first)
             return start_time <= self.first <= end_time, start_time - end_time, self.title
         
    
@@ -527,13 +527,7 @@ def main():
 
     while True:
         try:
-            r = praw.Reddit(user_agent=cfg_file.get('reddit', 'user_agent'))
-            logging.debug('Logging in as {0}'
-                          .format(cfg_file.get('reddit', 'username')))
-            r.login(cfg_file.get('reddit', 'username'),
-                    cfg_file.get('reddit', 'password'), disable_warning=True)
-            
-            
+            r = login()
             break
             
         except Exception as e:
@@ -553,8 +547,10 @@ def main():
     subreddits = (session.query(Subreddit)
                          .filter(Subreddit.enabled == 1)
                          .all())
-    for sr in subreddits: 
-
+    for sr in subreddits:
+        
+        logging.info('\nPROCESSING: {0}'.format(sr.name.upper()))
+        
         LIMIT = sr.banner_limit
         BANNER = sr.banner_name
         last_run = sr.last_run
@@ -585,7 +581,7 @@ def main():
 
         if event_due:    	
             try:
-                print ('executing', title, event_due)
+                print ('executing {0} in {1}'.format(title, sr.name))
                 event_due.execute(r.get_subreddit(sr.name), BANNER, LIMIT)  
             except KeyboardInterrupt:
                 raise
