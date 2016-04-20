@@ -1,7 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-
-# You'll probably need the sql3 GUI for windows to set up the database and set the required values in the config file
 #
 # The main subreddit's sidebar must include strings to denote the beginning and ending location of the list, the bot will not update the sidebar if these strings are not present
 # With the default delimiters the sidebar should include a chunk of text like:
@@ -17,7 +15,8 @@ from ConfigParser import SafeConfigParser
 from datetime import datetime, timedelta
 import HTMLParser
 import logging, logging.config, re, sys, os
-from time import time
+import time
+#from time import time
 
 from dateutil import parser, rrule, tz
 import praw
@@ -27,6 +26,8 @@ from sqlalchemy import Boolean, Column, DateTime, String, Text, Integer
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm.exc import NoResultFound
+from sqlalchemy.sql.expression import func
+
 import yaml
 
 import random
@@ -75,9 +76,10 @@ class Subreddit(Base):
     enabled = Column(Integer, nullable=False, default=1)
     schedule_yaml = Column(Text)
     updated = Column(Integer, nullable=False)
-    banner_limit = Column(Integer, nullable = False, default=1)
+    banner_limit = Column(Integer, nullable = False, default=5)
     banner_name = Column(Text, nullable = False, default='banner')
-
+    last_run = Column(Integer, nullable=False)
+    
 
 class ScheduledEvent(object):
     _defaults = {'repeat': None,
@@ -172,20 +174,23 @@ class ScheduledEvent(object):
         banner_number = 0
         sidebar_format = '* [{title}]({link} "{desc}")'
         sidebar_lines = []
+        hyperlink = "/r/%s" %subreddit
+        
         bigpic = []
         for image in album:
+            description = " "
             if image['size'] > 512000:
                 print ('too big: %s' %(image['link']))
                 title = '{0} - ({1} kB) -  {2} x {3}px'.format(image['link'], float(image['size'])/1000, image['width'], image['height'])
-                bigpic.append(sidebar_format.format(title=title, link=image['link'], desc=image['description'].encode('utf-8')))
+                description = image['description'].encode('utf-8') if image['description'] else description
+                bigpic.append(sidebar_format.format(title=title.encode('utf-8'), link=image['link'], desc=description))
                 continue
             banner_number += 1
             url = image['link']
             local_name = localize_name(album_id, url)
             download_image(url, local_name)
 
-            hyperlink = "/r/%s" %subreddit
-            description = " "
+
 
             if image['description']:           
                 pattern = re.compile(r'(https?|ftp):\/\/[^\s\/$.?#].[^\s]*', re.IGNORECASE|re.MULTILINE)
@@ -279,7 +284,7 @@ def get_album_id(album_url):
     album_id = album_url.split('/a/')[-1].split('/')[0]
     return album_id
 
-def update_from_wiki(subreddit, requester):
+def update_from_wiki(subreddit, requester, start_timestamp):
     print "Updating events from the %s wiki." %subreddit
     global r
     username = cfg_file.get('reddit', 'username')
@@ -352,7 +357,7 @@ def update_from_wiki(subreddit, requester):
         db_subreddit.name = subreddit.display_name.lower()
         session.add(db_subreddit)
 
-    db_subreddit.updated = datetime.utcnow()
+    db_subreddit.updated = int(start_timestamp)
     db_subreddit.schedule_yaml = page_content
     session.commit()
     logging.info("Update from wiki complete")
@@ -449,31 +454,27 @@ def send_error_message(user, sr_name, error):
                            error))
 
 
-def process_messages():
+def process_messages(start_timestamp):
     
     global r
     
-    stop_time = int(cfg_file.get('reddit', 'last_message'))
-
+    stop_time = session.query(func.max(Subreddit.updated)).one()
+    
     owner_username = cfg_file.get('reddit', 'owner_username')
-    new_last_message = None
     update_srs = set()
     invite_srs = set()
-
-    logging.debug('Reading messages and commands...')
+    print ('Reading messages and commands...')
 
     try:
         for message in r.get_inbox():
-            if int(message.created_utc) <= stop_time:
+            if int(message.created_utc) <= stop_time[0]:
                 break
 
             if message.was_comment:
                 continue
 
-            if not new_last_message:
-                new_last_message = int(message.created_utc)
-
             if message.body.strip().lower() == 'schedule':
+                print ('schedule message')
                 # handle if they put in something like '/r/' in the subject
                 if '/' in message.subject:
                     sr_name = message.subject[message.subject.rindex('/')+1:]
@@ -499,7 +500,7 @@ def process_messages():
         updated_srs = []
         for subreddit, sender in update_srs:
             if update_from_wiki(r.get_subreddit(subreddit),
-                                r.get_redditor(sender)):
+                                r.get_redditor(sender), start_timestamp):
                 updated_srs.append(subreddit)
                 logging.info('Updated from wiki in /r/{0}'.format(subreddit))
             else:
@@ -509,14 +510,6 @@ def process_messages():
     except Exception as e:
         logging.error('ERROR: {0}'.format(e))
         raise
-    finally:
-        # update cfg with new last_message value
-        if new_last_message:
-            cfg_file.set('reddit', 'last_message', str(new_last_message))
-            cfg_file.write(open(path_to_cfg, 'w'))
-
-
-
 
  
 def main():
@@ -524,18 +517,13 @@ def main():
     global client
     logging.config.fileConfig(path_to_cfg)
 
-    start_timestamp = int(time())
+    start_timestamp = time.mktime(datetime.now().timetuple())
     start_time = datetime.utcfromtimestamp(start_timestamp)
     start_time = start_time.replace(tzinfo=tz.tzutc())
     print "Start time %s" %start_time
-    
-    
-    last_run = int(cfg_file.get('reddit', 'last_run'))
-    last_run = datetime.utcfromtimestamp(last_run)
-    last_run = last_run.replace(tzinfo=tz.tzutc())
 
-##    cfg_file.set('reddit', 'last_run', str(start_timestamp))
-##    cfg_file.write(open(path_to_cfg, 'w'))
+
+        
 
     while True:
         try:
@@ -555,7 +543,7 @@ def main():
     # check for update messages
     logging.info("checking for update messages")
     try:
-        process_messages()
+        process_messages(start_timestamp)
     except KeyboardInterrupt:
         raise
     except Exception as e:
@@ -565,28 +553,35 @@ def main():
     subreddits = (session.query(Subreddit)
                          .filter(Subreddit.enabled == 1)
                          .all())
-    for sr in subreddits:
+    for sr in subreddits: 
 
         LIMIT = sr.banner_limit
         BANNER = sr.banner_name
-
-               	
+        last_run = sr.last_run
+        
+        if  last_run:
+            last_run = float(last_run)
+            last_run = datetime.utcfromtimestamp(last_run)
+            last_run = last_run.replace(tzinfo=tz.tzutc())
+        else:
+            last_run = start_time
+     	
         schedule = [ScheduledEvent(d, sr.updated)
                     for d in yaml.safe_load_all(sr.schedule_yaml)
                     if isinstance(d, dict)]
        
-
+        #Only one event should be queued per subreddit
         title = ""
         event_due = ""
         past_due = timedelta(days=999999999)
         for event in schedule:
-            mc = event.is_due(last_run, start_time)
+            MC = event.is_due(last_run, start_time)
 
-            if mc[0] and mc[1]:
-                if mc[1] < past_due:
-                    past_due = mc[1]
+            if MC[0] and MC[1]:
+                if MC[1] < past_due:
+                    past_due = MC[1]
                     event_due = event
-                    title = mc[2]
+                    title = MC[2]
 
         if event_due:    	
             try:
@@ -597,11 +592,12 @@ def main():
             except Exception as e:
                                  
                 logging.error('ERROR in /r/{0}: {1}. Rolling back'.format(sr.name, e))
+
+        sr.last_run = int(start_timestamp)
+             
+
+    session.commit()   
                 
-                session.rollback()
-                
-    cfg_file.set('reddit', 'last_run', str(start_timestamp))
-    cfg_file.write(open(path_to_cfg, 'w'))
 
 
 if __name__ == '__main__':
