@@ -1,7 +1,6 @@
 praw
-
 python-dateutil
 pyyaml
-
 SQLAlchemy
+psycopg2
 imgurpython
