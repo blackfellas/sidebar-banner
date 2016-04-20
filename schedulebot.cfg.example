@@ -1,14 +1,18 @@
 [database]
-system = sqlite
-host = localhost
-database = banner.db
-username = database_username
-password = database_password
-
-[reddit]
-user_agent = 
+system = postgresql
+host = 
+database = 
 username = 
 password = 
+
+[reddit]
+user_agent =  
+username = 
+password = 
+client_id = 
+client_secret = 
+redirect_uri = http://127.0.0.1:65010/authorize_callback
+refresh_token = 
 wiki_page_name = %(username)s-schedule
 last_run = 
 last_message = 
