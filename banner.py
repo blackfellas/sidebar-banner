@@ -140,7 +140,7 @@ class ScheduledEvent(object):
     def is_due(self, start_time, end_time):
         	
         if self.rrule and self.rrule.before(start_time, inc=True):
-            print '{title}: {due}'.format(title=self.title, due = "due!" if bool(self.rrule.between(start_time, end_time, inc=True) else "not due"))
+            print '{title}: {due}'.format(title=self.title, due = "due!" if bool(self.rrule.between(start_time, end_time, inc=True)) else "not due")
             print 'Next recurrence: {0}\n'.format(self.rrule.after(start_time, inc=True))
 
             return bool(self.rrule.between(start_time, end_time, inc=True)), start_time - self.rrule.before(start_time, inc=True), self.title
@@ -173,11 +173,11 @@ class ScheduledEvent(object):
             album = random.sample(album, COUNT)
         banner_number = 0
         sidebar_format = '* [{title}]({link} "{desc}")'
-        sidebar_lines = []
-        hyperlink = "/r/%s" %subreddit
-        
+        sidebar_lines = []           
         bigpic = []
+        
         for image in album:
+            hyperlink = "/r/%s" %subreddit
             description = " "
             if image['size'] > 512000:
                 print ('too big: %s' %(image['link']))
