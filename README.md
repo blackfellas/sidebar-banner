@@ -13,6 +13,7 @@ An album image  must be less than 500kB each in size (reddit limitations).
 * Heroku host (free tier) with Postgres database installed. If you want to run locally, you won't need `Procfile`
 * Create a database using sqlalchemy (heroku run python) or pgAdmin.
 * Configure your Reddit, Imgur, and Postgres DB credentials by entering them into schedule.cfg (no need to enter Reddit password if using oauth)
+* Optional: copy the files to a Dropbox folder and deploy by syncing it with Heroku.
 
 
 #### Running
