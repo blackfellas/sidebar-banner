@@ -19,6 +19,6 @@ An album image  must be less than 500kB each in size (reddit limitations).
 * Set up the wiki page on reddit for your bot http://reddit.com/r/YOURSUBREDIT/wiki/YOURBOT-schedule
 * After scheduling using the YAML syntax (see https://www.reddit.com/r/AutoModerator/comments/1z7rlu/-/cfrzuxb)
 * Send a message to your bot to `schedule` using your subreddit in the subject place
-* Run the `banner.py` script
+* Run the `banner.py` script (using a task scheduler on your PC, cron, or Heroku scheduler)
 * See a live example on http://reddit.com/r/Blackfellas/wiki/blackfellasbot-schedule
 
