@@ -16,7 +16,7 @@ An album image  must be less than 500kB each in size (reddit limitations).
 * Optional: copy the files to a Dropbox folder and deploy by syncing it with Heroku.
 
 
-#### Running
+#### Running:
 * Set up the wiki page on reddit for your bot http://reddit.com/r/YOURSUBREDIT/wiki/YOURBOT-schedule
 * After scheduling using the YAML syntax (see https://www.reddit.com/r/AutoModerator/comments/1z7rlu/-/cfrzuxb)
 * Send a message to your bot to `schedule` using your subreddit in the subject place
