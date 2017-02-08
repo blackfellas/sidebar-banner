@@ -7,7 +7,7 @@ An album image  must be less than 500kB each in size (reddit limitations).
 #### Requirements:
 * Reddit account (oauth)
 * Imgur account (ouath)
-* Python 2.7 (locally or set up on a server; I'm using Heroku as an example server)
+* Python 3 (locally or set up on a server; I'm using Heroku as an example server)
 * Pip (to install the python modules in `requirements.txt`). Heroku does this automatically.
 * pgAdmin to create and connect to databases locally and remotely (on Heroku) http://www.pgadmin.org/
 * Heroku host (free tier) with Postgres database installed. If you want to run locally, you won't need `Procfile`
