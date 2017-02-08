@@ -8,7 +8,7 @@ global r
 
 cfg_file = ConfigParser()
 path_to_cfg = os.getcwd() #os.path.abspath(os.path.dirname(sys.argv[0]))
-path_to_cfg = os.path.join(path_to_cfg, 'cred.cfg')
+path_to_cfg = os.path.join(path_to_cfg, 'schedulebot.cfg')
 cfg_file.read(path_to_cfg)
 
 def login():
