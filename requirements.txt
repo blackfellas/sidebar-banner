@@ -1,6 +1,6 @@
-praw
-python-dateutil
-pyyaml
-SQLAlchemy
-psycopg2
-imgurpython
+praw==4.3.0
+PyYAML==3.12
+python-dateutil==2.5.3
+SQLAlchemy==1.0.13
+psycopg2==2.6.2
+imgurpython==1.1.7

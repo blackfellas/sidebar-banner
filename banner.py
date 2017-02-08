@@ -9,12 +9,12 @@
 # [](#banner_end)
 #
 
-import praw
-from ConfigParser import SafeConfigParser
-import HTMLParser
-import logging, logging.config, re, sys, os
+from configparser import ConfigParser
+import html as HTMLParser
+import logging, logging.config, re, os
 
 import time
+from time import sleep
 from datetime import datetime, timedelta
 from dateutil import parser, rrule, tz
 import yaml
@@ -23,7 +23,7 @@ from requests.exceptions import HTTPError
 import requests
 
 from sqlalchemy import create_engine
-from sqlalchemy import Boolean, Column, DateTime, String, Text, Integer
+from sqlalchemy import Column, Text, Integer
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm.exc import NoResultFound
@@ -35,30 +35,36 @@ import random
 
 # global reddit session
 from login import login
-r = None
-cfg_file = SafeConfigParser()
-path_to_cfg = os.path.abspath(os.path.dirname(sys.argv[0]))
-path_to_cfg = os.path.join(path_to_cfg, 'schedulebot.cfg')
-cfg_file.read(path_to_cfg)
 
-if cfg_file.get('database', 'system').lower() == 'sqlite':
-    engine = create_engine(
-        cfg_file.get('database', 'system')+':///'+\
-        cfg_file.get('database', 'database'))
-else:
-    
-    engine = create_engine(
+
+cfg_file = ConfigParser()
+path_to_cfg = os.getcwd() #os.path.abspath(os.path.dirname(sys.argv[0]))
+path_to_cfg = os.path.join(path_to_cfg, 'cred.cfg')
+cfg_file.read(path_to_cfg)
+engine = create_engine(
         cfg_file.get('database', 'system')+'://'+\
-        cfg_file.get('database', 'username')+':'+\
+        cfg_file.get('database', 'user')+':'+\
         cfg_file.get('database', 'password')+'@'+\
         cfg_file.get('database', 'host')+'/'+\
         cfg_file.get('database', 'database'))
-    print "engine running..."
+print ("  engine running...")
 Base = declarative_base()
 Session = sessionmaker(bind=engine, expire_on_commit=False)
 session = Session()
 
+global r, client
 
+def passes():
+    client = ImgurClient(cfg_file.get('imgur', 'client_id'), cfg_file.get('imgur', 'client_secret'))
+    r = login()
+    return r, client
+
+try:
+    r, client = passes()
+except Exception as e:
+    print(e, '--retrying one last time')
+    sleep(30)
+    r, client = passes()
 
 class Subreddit(Base):
 
@@ -134,19 +140,20 @@ class ScheduledEvent(object):
             if self.title:
                 self.title = self.replace_placeholders(self.title)
         except Exception as e:
-            raise ValueError('Error in title')
+            raise ValueError('Error in title:', e)
        
 
     def is_due(self, start_time, end_time):
         	
         if self.rrule and self.rrule.before(start_time, inc=True):
-            print '{title}: {due}'.format(title=self.title, due = "due!" if bool(self.rrule.between(start_time, end_time, inc=True)) else "not due")
-            print 'Next recurrence: {0}\n'.format(self.rrule.after(start_time, inc=True))
-
+            print ('{title}: {due}'.format(title=self.title, due = "due!" if bool(self.rrule.between(start_time, end_time, inc=True)) else "not due"))
+            next_recurrence = self.rrule.after(start_time, inc=True) 
+            
+            print ('Next recurrence: {0}\n'.format((next_recurrence).strftime('%a, %b %d %Y, %I:%M %p')))
             return bool(self.rrule.between(start_time, end_time, inc=True)), start_time - self.rrule.before(start_time, inc=True), self.title
             			
         else:
-            print '{0}: pending (since/till {1})'.format(self.title, self.first)
+            print ('{0}: pending: {1}\n'.format(self.title, self.first))
             return start_time <= self.first <= end_time, start_time - end_time, self.title
         
    
@@ -154,9 +161,8 @@ class ScheduledEvent(object):
         
 
 
-    def execute(self, subreddit, BANNER, LIMIT):
-        global r
-        client = ImgurClient(cfg_file.get('imgur', 'client_id'), cfg_file.get('imgur', 'client_secret'))
+    def execute(self, bot, subreddit, BANNER, LIMIT):
+
         album_id = get_album_id(self.url)
         album = client.get_album(album_id)
         album_title = self.title
@@ -164,7 +170,7 @@ class ScheduledEvent(object):
         COUNT = len(album)
         if COUNT < LIMIT:
             print('Not enough images!')
-            send_error_message(cfg_file.get('reddit', 'owner_username'), subreddit.display_name,   'Not enough '
+            send_error_message(bot, cfg_file.get('reddit', 'owner_username'), subreddit.display_name,   'Not enough '
                                ' images in album ["{0}"]({1})'.format(album_title, self.url))
             return
      
@@ -172,18 +178,18 @@ class ScheduledEvent(object):
         if COUNT > LIMIT:
             album = random.sample(album, COUNT)
         banner_number = 0
-        sidebar_format = '* [{title}]({link} "{desc}")'
+        sidebar_format = "* [{title}]({link} '{desc}')" 
         sidebar_lines = []           
         bigpic = []
         
         for image in album:
-            hyperlink = "/r/%s" %subreddit
-            description = " "
+            hyperlink = "#%s" %subreddit
+            description = ""
             if image['size'] > 512000:
                 print ('too big: %s' %(image['link']))
                 title = '{0} - ({1} kB) -  {2} x {3}px'.format(image['link'], float(image['size'])/1000, image['width'], image['height'])
-                description = image['description'].encode('utf-8') if image['description'] else description
-                bigpic.append(sidebar_format.format(title=title.encode('utf-8'), link=image['link'], desc=description))
+                description = image['description'] if image['description'] else description
+                bigpic.append(sidebar_format.format(title=title, link=image['link'], desc=description))
                 continue
             banner_number += 1
             url = image['link']
@@ -196,18 +202,25 @@ class ScheduledEvent(object):
                 pattern = re.compile(r'(https?|ftp):\/\/[^\s\/$.?#].[^\s]*', re.IGNORECASE|re.MULTILINE)
                 matched = pattern.search(image['description'])
                 blob = re.sub(pattern, '', image['description'])
-                description = blob.encode('utf-8')
+                description = blob
+                description = description.replace("'", '’')
+                
                 if matched:
                     hyperlink = matched.group(0)
+                    #format for reddit markup that breaks urls with parentheses
+                    hyperlink = hyperlink.replace('(', '\(')
+                    hyperlink = hyperlink.replace(')', '\)')
 
            
-            title = image['title'].encode('utf-8') if image['title'] else 'Untitled'
+            title = image['title'] if image['title'] else 'Untitled'
             line = sidebar_format.format(title=title, link=hyperlink, desc=description)
  
             css_name = BANNER + '%d' % banner_number
-            print('%s: adding %s to stylesheet...' % (subreddit, css_name))
+            print('%s: adding %s to stylesheet...' % (title, css_name))
+            
             try:
-                r.upload_image(subreddit, local_name, css_name)
+                sup = r.subreddit(subreddit)
+                sup.stylesheet.upload(css_name, local_name)
             except Exception as e:
                 print (e)
                 return
@@ -216,7 +229,7 @@ class ScheduledEvent(object):
                 break
         if banner_number < LIMIT:
             print ('Not enough valid images')
-            send_error_message(cfg_file.get('reddit', 'owner_username'), subreddit.display_name,   'Not enough valid'
+            send_error_message(cfg_file.get('reddit', 'owner_username'), subreddit,   'Not enough valid'
                                ' images in album ["{0}"]({1}); check that the following image sizes are less than 500kB. '
                                'Images ideally should be greater than 300px wide and 1:1 or greater aspect ratio: \n\n{2}'.format(album_title, self.url, '\n'.join(bigpic)))
             return
@@ -224,19 +237,20 @@ class ScheduledEvent(object):
         bar = '{0} {1}\n{2}\n'.format('#####',album_title, bar)
         
         r.config.decode_html_entities = True
-        current_sidebar = subreddit.get_settings()['description']
-        current_sidebar = HTMLParser.HTMLParser().unescape(current_sidebar)
+        current_sidebar = sup.description
+        current_sidebar = HTMLParser.unescape(current_sidebar)
         replace_pattern = re.compile('%s.*?%s' % (re.escape(cfg_file.get('reddit', 'start_delimiter')), re.escape(cfg_file.get('reddit', 'end_delimiter'))), re.IGNORECASE|re.DOTALL|re.UNICODE)
         new_sidebar = re.sub(replace_pattern,
-                            '%s\n%s\n%s' % (cfg_file.get('reddit', 'start_delimiter'), bar.decode('utf-8'), cfg_file.get('reddit', 'end_delimiter')),
+                            '%s\n%s\n%s' % (cfg_file.get('reddit', 'start_delimiter'), bar, cfg_file.get('reddit', 'end_delimiter')),
                             current_sidebar)
         
-        r.update_settings(subreddit, description=new_sidebar)
+        sup.mod.update(description=new_sidebar, key_color=sup.key_color, show_media=sup.show_media, allow_images=True, spoilers_enabled=True)
         print ('%s sidebar updated!' %subreddit)
-        subreddit.set_stylesheet(subreddit.get_stylesheet()['stylesheet'])
+        styles = sup.stylesheet()
+        sup.stylesheet.update(stylesheet=styles.stylesheet)
         print ('%s stylesheet set!' %subreddit)
         if bigpic:
-            send_error_message(cfg_file.get('reddit', 'owner_username'), subreddit.display_name,   'The following '
+            send_error_message(bot, cfg_file.get('reddit', 'owner_username'), subreddit,   'The following '
                                ' images in album ["{0}"]({1}) were not valid and were skipped; check that their sizes are less than 500kB. '
                                'Images ideally should be greater than 300px wide and 1:1 or greater aspect ratio: \n\n{2}'.format(album_title, self.url, '\n'.join(bigpic)))
             
@@ -284,14 +298,13 @@ def get_album_id(album_url):
     album_id = album_url.split('/a/')[-1].split('/')[0]
     return album_id
 
-def update_from_wiki(subreddit, requester, start_timestamp):
-    print "Updating events from the %s wiki." %subreddit
-    global r
+def update_from_wiki(bot, subreddit, requester, start_timestamp):
+    print ("Updating events from the %s wiki." %subreddit)
     username = cfg_file.get('reddit', 'username')
-
     try:
-        
-        page = subreddit.get_wiki_page(cfg_file.get('reddit', 'wiki_page_name'))
+
+        page = subreddit.wiki[cfg_file.get('reddit', 'wiki_page_name')]
+
         
     except Exception:
             
@@ -304,7 +317,7 @@ def update_from_wiki(subreddit, requester, start_timestamp):
                     username))
         return False
 
-    html_parser = HTMLParser.HTMLParser()
+    html_parser = HTMLParser
     page_content = html_parser.unescape(page.content_md)
 
     # check that all the events are valid yaml
@@ -336,7 +349,7 @@ def update_from_wiki(subreddit, requester, start_timestamp):
 
         try:
             check_event_valid(event_def)
-            event = ScheduledEvent(event_def)
+            #event = ScheduledEvent(event_def)
         except ValueError as e:
             send_error_message(requester, subreddit.display_name,
                 'Invalid event in section #{0} - {1}'
@@ -362,8 +375,7 @@ def update_from_wiki(subreddit, requester, start_timestamp):
     session.commit()
     logging.info("Update from wiki complete")
 
-    r.send_message(requester,
-                   '{0} schedule updated'.format(username),
+    bot.message('{0} schedule updated'.format(username),
                    "{0}'s schedule was successfully updated for /r/{1}"
                    .format(username, subreddit.display_name))
     return True
@@ -372,7 +384,7 @@ def update_from_wiki(subreddit, requester, start_timestamp):
 def lowercase_keys_recursively(subject):
     """Recursively lowercases all keys in a dict."""
     lowercased = dict()
-    for key, val in subject.iteritems():
+    for key, val in subject.items():
         if isinstance(val, dict):
             val = lowercase_keys_recursively(val)
         lowercased[key.lower()] = val
@@ -382,25 +394,24 @@ def lowercase_keys_recursively(subject):
 
 def check_event_valid(event):
     """Checks if an event defined on a wiki page is valid."""
-    print "Validating wiki events..."	
 
     validate_keys(event)
     validate_values_not_empty(event)
 
-    validate_type(event, 'first', basestring)
-    validate_type(event, 'repeat', basestring)
-    validate_type(event, 'rrule', basestring)
-    validate_type(event, 'title', basestring)
+    validate_type(event, 'first', str)
+    validate_type(event, 'repeat', str)
+    validate_type(event, 'rrule', str)
+    validate_type(event, 'title', str)
     validate_regex(event, 'url', ScheduledEvent.url_regex)
     validate_regex(event, 'repeat', ScheduledEvent.repeat_regex)
 
 
 def validate_values_not_empty(check):
-    for key, val in check.iteritems():
+    for key, val in check.items():
         if isinstance(val, dict):
             validate_values_not_empty(val)
         elif (val is None or
-              (isinstance(val, (basestring, list)) and len(val) == 0)):
+              (isinstance(val, (str, list)) and len(val) == 0)):
             raise ValueError('`{0}` set to an empty value'.format(key))
 
 
@@ -442,11 +453,9 @@ def validate_regex(check, key, pattern):
 
 
 
-def send_error_message(user, sr_name, error):
+def send_error_message(bot, user, sr_name, error):
     """Sends an error message to the user if a wiki update failed."""
-    global r
-    r.send_message(user,
-                   'Error processing wiki in /r/{0}'.format(sr_name),
+    bot.message('Error processing wiki in /r/{0}'.format(sr_name),
                    '**Error updating from [wiki configuration in /r/{0}]'
                    '(http://www.reddit.com/r/{0}/wiki/{1})**:\n\n---\n\n{2}'
                    .format(sr_name,
@@ -454,19 +463,18 @@ def send_error_message(user, sr_name, error):
                            error))
 
 
-def process_messages(start_timestamp):
+def process_messages(bot, start_timestamp):
     
-    global r
     
     stop_time = session.query(func.max(Subreddit.updated)).one()
     
     owner_username = cfg_file.get('reddit', 'owner_username')
     update_srs = set()
-    invite_srs = set()
+    #invite_srs = set()
     print ('Reading messages and commands...')
 
     try:
-        for message in r.get_inbox():
+        for message in r.inbox.messages():
             if int(message.created_utc) <= stop_time[0]:
                 break
 
@@ -481,26 +489,25 @@ def process_messages(start_timestamp):
                 else:
                     sr_name = message.subject
 
-                if (sr_name.lower(), message.author.name) in update_srs:
+                if (sr_name.lower(), message.author) in update_srs:
                     continue
 
                 try:
-                    subreddit = r.get_subreddit(sr_name)
-                    if (message.author.name == owner_username or
-                            message.author in subreddit.get_moderators()):
-                        update_srs.add((sr_name.lower(), message.author.name))
+                    subreddit = r.subreddit(sr_name)
+                    if (message.author == owner_username) or (message.author in subreddit.moderator):
+                        update_srs.add((sr_name.lower(), message.author))
                     else:
-                        send_error_message(message.author, sr_name,
+                        send_error_message(bot, message.author, sr_name,
                             'You do not moderate /r/{0}'.format(sr_name))
                 except HTTPError as e:
-                    send_error_message(message.author, sr_name,
+                    send_error_message(bot, message.author, sr_name,
                         'Unable to access /r/{0}'.format(sr_name))
 
         # do requested updates from wiki pages
         updated_srs = []
         for subreddit, sender in update_srs:
-            if update_from_wiki(r.get_subreddit(subreddit),
-                                r.get_redditor(sender), start_timestamp):
+            if update_from_wiki(bot, r.subreddit(subreddit),
+                                r.redditor(sender), start_timestamp):
                 updated_srs.append(subreddit)
                 logging.info('Updated from wiki in /r/{0}'.format(subreddit))
             else:
@@ -513,31 +520,18 @@ def process_messages(start_timestamp):
 
  
 def main():
-    global r
-    global client
+    bot = r.user.me()
+
     logging.config.fileConfig(path_to_cfg)
 
     start_timestamp = time.mktime(datetime.now().timetuple())
     start_time = datetime.utcfromtimestamp(start_timestamp)
     start_time = start_time.replace(tzinfo=tz.tzutc())
-    print "Start time %s" %start_time
+    print ("Start time %s" %start_time)
 
-
-        
-
-    while True:
-        try:
-            r = login()
-            break
-            
-        except Exception as e:
-            		
-            logging.error('ERROR: {0}'.format(e))
-
-    # check for update messages
     logging.info("checking for update messages")
     try:
-        process_messages(start_timestamp)
+        process_messages(bot, start_timestamp)
     except KeyboardInterrupt:
         raise
     except Exception as e:
@@ -569,29 +563,35 @@ def main():
         #Only one event should be queued per subreddit
         title = ""
         event_due = ""
+        event_backup, title_bk = None, None
+        to_do = "daily show"
+        cwd = 'dropbox'
         past_due = timedelta(days=999999999)
         for event in schedule:
             MC = event.is_due(last_run, start_time)
-
             if MC[0] and MC[1]:
                 if MC[1] < past_due:
                     past_due = MC[1]
                     event_due = event
-                    title = MC[2]
-
-        if event_due:    	
+                    title = MC[2]                   
+            if to_do.lower() in MC[2].lower():
+                event_backup = event
+                title_bk = MC[2] + ' -- backup'
+        if not event_due and (cwd.lower() in os.getcwd().lower()):
+            event_due = event_backup
+            title = title_bk
+        if event_due:
+            
             try:
                 print ('executing {0} in {1}'.format(title, sr.name))
-                event_due.execute(r.get_subreddit(sr.name), BANNER, LIMIT)  
+                event_due.execute(bot, sr.name, BANNER, LIMIT)  
+                sr.last_run = int(start_timestamp)
             except KeyboardInterrupt:
                 raise
             except Exception as e:
-                                 
+                session.rollback()                
                 logging.error('ERROR in /r/{0}: {1}. Rolling back'.format(sr.name, e))
-
-        sr.last_run = int(start_timestamp)
              
-
     session.commit()   
                 
 
