@@ -39,7 +39,7 @@ from login import login
 
 cfg_file = ConfigParser()
 path_to_cfg = os.getcwd() #os.path.abspath(os.path.dirname(sys.argv[0]))
-path_to_cfg = os.path.join(path_to_cfg, 'cred.cfg')
+path_to_cfg = os.path.join(path_to_cfg, 'schedulebot.cfg')
 cfg_file.read(path_to_cfg)
 engine = create_engine(
         cfg_file.get('database', 'system')+'://'+\
@@ -563,9 +563,6 @@ def main():
         #Only one event should be queued per subreddit
         title = ""
         event_due = ""
-        event_backup, title_bk = None, None
-        to_do = "daily show"
-        cwd = 'dropbox'
         past_due = timedelta(days=999999999)
         for event in schedule:
             MC = event.is_due(last_run, start_time)
@@ -574,12 +571,7 @@ def main():
                     past_due = MC[1]
                     event_due = event
                     title = MC[2]                   
-            if to_do.lower() in MC[2].lower():
-                event_backup = event
-                title_bk = MC[2] + ' -- backup'
-        if not event_due and (cwd.lower() in os.getcwd().lower()):
-            event_due = event_backup
-            title = title_bk
+
         if event_due:
             
             try:
